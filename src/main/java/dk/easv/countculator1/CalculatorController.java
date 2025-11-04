@@ -2,122 +2,212 @@ package dk.easv.countculator1;
 
 import dk.easv.countculator1.business.Calculator;
 import javafx.fxml.FXML;
-import javafx.scene.control.Button;
-import javafx.scene.control.TextArea;
+import javafx.fxml.Initializable;
+import javafx.scene.control.*;
+import javafx.scene.layout.VBox;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.ResourceBundle;
 
-public class CalculatorController {
+public class CalculatorController implements Initializable {
 
-    @FXML
-    private TextArea Result;
+    @FXML private TextArea Result;
+    @FXML private VBox historyPanel;
+    @FXML private Button btnHistoryToggle;
+    @FXML private Button btnClearHistory;
+    @FXML private ListView<String> historyListView;
+    @FXML private Label lblHistoryCount;
 
-    @FXML private Button bntDelete;
-    @FXML private Button bntPlusMinus;
-    @FXML private Button bntDivide;
-    @FXML private Button bnt7;
-    @FXML private Button btn8;
-    @FXML private Button btn9;
-    @FXML private Button btnTimes;
-    @FXML private Button btn4;
-    @FXML private Button btn5;
-    @FXML private Button btn6;
-    @FXML private Button btnMinus;
-    @FXML private Button btn1;
-    @FXML private Button btn2;
-    @FXML private Button btn3;
-    @FXML private Button btnPlus;
-    @FXML private Button btn0;
-    @FXML private Button btnComma;
-    @FXML private Button btnEqual;
-
-    // Calculator instance
-    private Calculator calculator = new Calculator();
-
-    // Calculator state
-    private double firstNumber = 0;
+    private Calculator calculator;
+    private String currentInput = "";
     private String operator = "";
+    private double firstOperand = 0;
     private boolean startNewNumber = true;
+    private List<CalculationRecord> history;
+    private static final String HISTORY_FILE = "calculator_history.dat";
+
+    @Override
+    public void initialize(URL location, ResourceBundle resources) {
+        calculator = new Calculator();
+        history = new ArrayList<>();
+        loadHistoryFromFile();
+        Result.setText("0");
+        Result.setEditable(false);
+        updateHistoryDisplay();
+    }
 
     @FXML
-    protected void onHelloButtonClick(javafx.event.ActionEvent event) {
-        Object source = event.getSource();
+    private void handleButtonClick(javafx.event.ActionEvent event) {
+        Button button = (Button) event.getSource();
+        String buttonText = button.getText();
 
-        // Number buttons
-        if (source == btn0) appendNumber("0");
-        else if (source == btn1) appendNumber("1");
-        else if (source == btn2) appendNumber("2");
-        else if (source == btn3) appendNumber("3");
-        else if (source == btn4) appendNumber("4");
-        else if (source == btn5) appendNumber("5");
-        else if (source == btn6) appendNumber("6");
-        else if (source == bnt7) appendNumber("7");
-        else if (source == btn8) appendNumber("8");
-        else if (source == btn9) appendNumber("9");
-
-            // Decimal
-        else if (source == btnComma) appendDecimal();
-
-            // Operators
-        else if (source == btnPlus) setOperator("+");
-        else if (source == btnMinus) setOperator("-");
-        else if (source == btnTimes) setOperator("X");
-        else if (source == bntDivide) setOperator("/");
-
-            // Special
-        else if (source == btnEqual) calculateResult();
-        else if (source == bntDelete) clear();
-        else if (source == bntPlusMinus) toggleSign();
-    }
-
-    // === Helper methods ===
-
-    private void appendNumber(String num) {
-        if (startNewNumber) {
-            Result.setText(num);
-            startNewNumber = false;
-        } else {
-            Result.appendText(num);
+        switch (buttonText) {
+            case "C":
+                clearCalculator();
+                break;
+            case "+/-":
+                toggleSign();
+                break;
+            case "%":
+            case "%%":
+                applyPercentage();
+                break;
+            case "+":
+            case "-":
+            case "X":
+            case "/":
+                handleOperator(buttonText);
+                break;
+            case ",":
+            case ".":
+                handleDecimal();
+                break;
+            default:
+                // It's a number
+                handleNumber(buttonText);
+                break;
         }
     }
 
-    private void appendDecimal() {
-        if (startNewNumber) {
-            Result.setText("0.");
-            startNewNumber = false;
-        } else if (!Result.getText().contains(".")) {
-            Result.appendText(".");
+    @FXML
+    private void handleEquals() {
+        if (operator.isEmpty() || currentInput.isEmpty()) {
+            return;
         }
-    }
 
-    private void setOperator(String op) {
-        firstNumber = Double.parseDouble(Result.getText().replace(",", "."));
-        operator = op;
-        startNewNumber = true;
-    }
-
-    private void calculateResult() {
         try {
-            double secondNumber = Double.parseDouble(Result.getText().replace(",", "."));
-            double result = calculator.calculate(firstNumber, secondNumber, operator);
-            Result.setText(String.valueOf(result));
+            double secondOperand = parseInput(currentInput);
+            String expression = formatNumber(firstOperand) + " " + operator + " " + formatNumber(secondOperand);
+
+            double result = calculator.calculate(firstOperand, secondOperand, operator);
+            String resultStr = formatNumber(result);
+
+            Result.setText(resultStr);
+
+            // Add to history
+            CalculationRecord record = new CalculationRecord(expression, resultStr);
+            history.add(record);
+            updateHistoryDisplay();
+            saveHistoryToFile();
+
+            // Reset for next calculation
+            currentInput = resultStr;
+            operator = "";
             startNewNumber = true;
         } catch (IllegalArgumentException e) {
-            Result.setText(e.getMessage());
+            Result.setText("Error: " + e.getMessage());
+            clearCalculator();
+        }
+    }
+
+    private void handleNumber(String number) {
+        if (startNewNumber) {
+            currentInput = number;
+            startNewNumber = false;
+        } else {
+            currentInput += number;
+        }
+        Result.setText(currentInput);
+    }
+
+    private void handleOperator(String op) {
+        if (!currentInput.isEmpty()) {
+            if (!operator.isEmpty()) {
+                handleEquals();
+            }
+            firstOperand = parseInput(currentInput);
+            operator = op;
             startNewNumber = true;
         }
     }
 
-    private void clear() {
-        Result.clear();
-        firstNumber = 0;
-        operator = "";
-        startNewNumber = true;
+    private void handleDecimal() {
+        if (startNewNumber) {
+            currentInput = "0.";
+            startNewNumber = false;
+        } else if (!currentInput.contains(".")) {
+            currentInput += ".";
+        }
+        Result.setText(currentInput);
     }
 
     private void toggleSign() {
-        if (!Result.getText().isEmpty()) {
-            double current = Double.parseDouble(Result.getText().replace(",", "."));
-            current = calculator.toggleSign(current);
-            Result.setText(String.valueOf(current));
+        if (!currentInput.isEmpty() && !currentInput.equals("0")) {
+            double value = parseInput(currentInput);
+            value = calculator.toggleSign(value);
+            currentInput = formatNumber(value);
+            Result.setText(currentInput);
+        }
+    }
+
+    private void applyPercentage() {
+        if (!currentInput.isEmpty()) {
+            double value = parseInput(currentInput);
+            value = calculator.percentage(value);
+            currentInput = formatNumber(value);
+            Result.setText(currentInput);
+        }
+    }
+
+    private void clearCalculator() {
+        currentInput = "";
+        operator = "";
+        firstOperand = 0;
+        startNewNumber = true;
+        Result.setText("0");
+    }
+
+    @FXML
+    private void toggleHistory() {
+        boolean isVisible = historyPanel.isVisible();
+        historyPanel.setVisible(!isVisible);
+        historyPanel.setManaged(!isVisible);
+        btnHistoryToggle.setText(isVisible ? "Show History" : "Hide History");
+    }
+
+    @FXML
+    private void clearHistory() {
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Clear History");
+        alert.setHeaderText("Are you sure you want to clear the calculation history?");
+        alert.setContentText("This action cannot be undone.");
+
+        Optional<ButtonType> result = alert.showAndWait();
+        if (result.isPresent() && result.get() == ButtonType.OK) {
+            history.clear();
+            historyListView.getItems().clear();
+            lblHistoryCount.setText("0 items");
+            saveHistoryToFile();
+        }
+    }
+
+    private void updateHistoryDisplay() {
+        historyListView.getItems().clear();
+        for (CalculationRecord record : history) {
+            historyListView.getItems().add(record.toString());
+        }
+        lblHistoryCount.setText(history.size() + " items");
+    }
+
+    private void loadHistoryFromFile() {
+        history = HistoryManager.loadHistory(HISTORY_FILE);
+    }
+
+    private void saveHistoryToFile() {
+        HistoryManager.saveHistory(history, HISTORY_FILE);
+    }
+
+    private double parseInput(String input) {
+        return Double.parseDouble(input.replace(",", "."));
+    }
+
+    private String formatNumber(double number) {
+        if (number == (long) number) {
+            return String.format("%d", (long) number);
+        } else {
+            return String.format("%s", number).replace(".", ",");
         }
     }
 }
